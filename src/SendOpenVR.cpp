@@ -1,8 +1,46 @@
 #include "lsl_cpp.h"
-
+#include "openvr.h"
 #include <iostream>
 #include <time.h>
 #include <stdlib.h>
+
+
+std::string GetTrackedDeviceString(vr::IVRSystem *pHmd, vr::TrackedDeviceIndex_t unDevice, vr::TrackedDeviceProperty prop, vr::TrackedPropertyError *peError = NULL)
+{
+	uint32_t unRequiredBufferLen = pHmd->GetStringTrackedDeviceProperty(unDevice, prop, NULL, 0, peError);
+	if (unRequiredBufferLen == 0)
+		return "";
+
+	char *pchBuffer = new char[unRequiredBufferLen];
+	unRequiredBufferLen = pHmd->GetStringTrackedDeviceProperty(unDevice, prop, pchBuffer, unRequiredBufferLen, peError);
+	std::string sResult = pchBuffer;
+	delete[] pchBuffer;
+	return sResult;
+}
+
+
+void ProcessVREvent(const vr::VREvent_t & event)
+{
+	switch (event.eventType)
+	{
+	case vr::VREvent_TrackedDeviceActivated:
+	{
+		//SetupRenderModelForTrackedDevice(event.trackedDeviceIndex);
+		std::cout << "Attached device" << event.trackedDeviceIndex << std::endl;
+	}
+	break;
+	case vr::VREvent_TrackedDeviceDeactivated:
+	{
+		std::cout << "Detached device " << event.trackedDeviceIndex << std::endl;
+	}
+	break;
+	case vr::VREvent_TrackedDeviceUpdated:
+	{
+		std::cout << "Updated device " << event.trackedDeviceIndex << std::endl;
+	}
+	break;
+	}
+}
 
 
 int main(int argc, char* argv[]) {
@@ -11,12 +49,39 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         pollControllers = argv[1];
     }
+	//TODO: Parse pollControllers to a boolean
 
     try {
 
         // TODO: Open libopenvr, get device parameters
         // Need nChannels and maybe poll a few samples to get sampRate
         // Device name
+		vr::EVRInitError eError = vr::VRInitError_None;
+		vr::IVRSystem *vrsys = vr::VR_Init(&eError, vr::VRApplication_Other);
+		if (eError != vr::VRInitError_None)
+		{
+			vrsys = NULL;
+			char buf[1024];
+			sprintf_s(buf, sizeof(buf), "Unable to init VR runtime: %s", vr::VR_GetVRInitErrorAsEnglishDescription(eError));
+			std::cout << buf << std::endl;
+			return false;
+		}
+
+		std::string strDriver = "No Driver";
+		std::string strDisplay = "No Display";
+
+		strDriver = GetTrackedDeviceString(vrsys, vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_TrackingSystemName_String);
+		strDisplay = GetTrackedDeviceString(vrsys, vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_SerialNumber_String);
+		std::cout << "Driver: " << strDriver << "; Display: " << strDisplay << std::endl;
+		//Driver: lighthouse; Display: LHR-5D35FA67
+
+		bool deviceIsTracked[vr::k_unMaxTrackedDeviceCount];
+
+		/*
+		vr::TrackingUniverseOrigin eOrigin = vr::TrackingUniverseSeated;
+		vr::TrackedDevicePose_t *pTrackedDevicePoseArray;
+		uint32_t unTrackedDevicePoseArrayCount = 1;
+		*/
         
         /*
         // TODO: make 2 new stream_info. One for Button events, one for Position
@@ -41,9 +106,27 @@ int main(int argc, char* argv[]) {
         std::cout << "Now sending data... " << std::endl;
         
         for(unsigned t=0;;t++) {
+
+			// Process SteamVR events
+			vr::VREvent_t event;
+			while (vrsys->PollNextEvent(&event, sizeof(event)))
+			{
+				ProcessVREvent(event);
+			}
+
+			// Process SteamVR controller state
+			for (vr::TrackedDeviceIndex_t unDevice = 0; unDevice < vr::k_unMaxTrackedDeviceCount; unDevice++)
+			{
+				vr::VRControllerState_t state;
+				if (vrsys->GetControllerState(unDevice, &state))
+				{
+					deviceIsTracked[unDevice] = state.ulButtonPressed == 0;
+				}
+			}
             
             //TODO: Get button events from openvr
             //TODO: If there were button events, then push a sample through outletButtons
+			//vrsys->GetDeviceToAbsoluteTrackingPose(eOrigin, 0.0f, VR_ARRAY_COUNT(unTrackedDevicePoseArrayCount) pTrackedDevicePoseArray, unTrackedDevicePoseArrayCount);
             
             //TODO: Get the state and pose from openvr
             //Always push the latest sample
@@ -58,7 +141,11 @@ int main(int argc, char* argv[]) {
 
     } catch(std::exception &e) {
         std::cerr << "Got an exception: " << e.what() << std::endl;
+		vr::VR_Shutdown();
+		//vrsys = NULL;
     }
-    std::cout << "Press any key to exit. " << std::endl; cin.get();
+    std::cout << "Press any key to exit. " << std::endl; std::cin.get();
+
+	
     return 0;
 }
