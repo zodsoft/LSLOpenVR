@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
 			std::cout << "Input focus is captured by another process" << std::endl;
 		}
 
-		// Wait until all devices are tracking
+		//TODO: Wait until all devices are tracking.
 
 		std::vector<uint32_t> device_indices = {
 			vr::k_unTrackedDeviceIndex_Hmd,
