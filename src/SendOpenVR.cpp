@@ -3,6 +3,8 @@
 #include <iostream>
 #include <time.h>
 #include <stdlib.h>
+#include <chrono>
+#include <thread>
 
 
 std::string GetTrackedDeviceString(vr::IVRSystem *pHmd, vr::TrackedDeviceIndex_t unDevice, vr::TrackedDeviceProperty prop, vr::TrackedPropertyError *peError = NULL)
@@ -98,14 +100,19 @@ int main(int argc, char* argv[]) {
 			std::cout << "Input focus is captured by another process" << std::endl;
 		}
 
-		//TODO: Wait until all devices are tracking.
-
+		std::cout << "Waiting for tracked controllers to come online..." << std::endl;
+		while (vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) > vr::k_unMaxTrackedDeviceCount ||
+			vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) > vr::k_unMaxTrackedDeviceCount)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
 		std::vector<uint32_t> device_indices = {
 			vr::k_unTrackedDeviceIndex_Hmd,
 			(uint32_t)vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand),
 			(uint32_t)vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand)
 		};
-		std::cout << device_indices[0] << " " << device_indices[1] << " " << device_indices[2] << std::endl;
+		std::cout << "HMD: " << device_indices[0] << "; RightHand: " << device_indices[1] << "; LeftHand: " << device_indices[2] << std::endl;
+
 		
 		//Make stream infos. First for Button events. Second for poses.
         lsl::stream_info infoButtons("Buttons", "Markers", 1, lsl::IRREGULAR_RATE, lsl::cf_int8, "OpenVRButtons_");
@@ -136,6 +143,7 @@ int main(int argc, char* argv[]) {
         lsl::stream_outlet outletPoses(infoPoses);
         
         // send data forever
+		vr::TrackedDevicePose_t rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
         std::cout << "Now sending data... " << std::endl;
         for(unsigned t=0;;t++) {
 
@@ -197,44 +205,31 @@ int main(int argc, char* argv[]) {
 			}
 
 			// Get the poses
-			vr::TrackedDevicePose_t rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
-			float pose_sample[n_devices*n_pose_axes];
+			float pose_sample[n_devices*n_pose_axes] = {};
 			vrsys->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, 0.0f, VR_ARRAY_COUNT(vr::k_unMaxTrackedDeviceCount) rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount);
 			for (int device_ix = 0; device_ix < vr::k_unMaxTrackedDeviceCount; device_ix++)
 			{
-				if (rTrackedDevicePose[device_ix].bPoseIsValid)
+				if (rTrackedDevicePose[device_ix].bPoseIsValid && rTrackedDevicePose[device_ix].bDeviceIsConnected)
 				{
-					vr::HmdMatrix34_t pose_mat = rTrackedDevicePose[device_ix].mDeviceToAbsoluteTracking;
+					int pos = std::find(device_indices.begin(), device_indices.end(), device_ix) - device_indices.begin();
+					if (pos < device_indices.size())
+					{
+						device_id = device_indices[pos];
+						vr::HmdMatrix34_t pose_mat = rTrackedDevicePose[device_ix].mDeviceToAbsoluteTracking;
+						//PrintPose(pose_mat);
 
-					if (device_ix == vr::k_unTrackedDeviceIndex_Hmd)
-					{
-						device_id = 0;
-					}
-					else if (device_ix == vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand))
-					{
-						device_id = 1;
-					}
-					else if (device_ix == vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand))
-					{
-						device_id = 2;
-					}
-
-					if (device_id == 99)
-					{
-						PrintPose(pose_mat);
-					}
-					
-					for (int row_ix = 0; row_ix < 3; row_ix++)
-					{
-						for (int col_ix = 0; col_ix < 4; col_ix++)
+						for (int row_ix = 0; row_ix < 3; row_ix++)
 						{
-							int sample_ix = (3 * 4 * device_id) + (4 * row_ix) + col_ix;
-							pose_sample[sample_ix] = pose_mat.m[row_ix][col_ix];
+							for (int col_ix = 0; col_ix < 4; col_ix++)
+							{
+								int sample_ix = (3 * 4 * device_id) + (4 * row_ix) + col_ix;
+								pose_sample[sample_ix] = pose_mat.m[row_ix][col_ix];
+							}
 						}
 					}
-					outletPoses.push_sample(pose_sample);
 				}
-			}	
+			}
+			outletPoses.push_sample(pose_sample);
         }
 
     } catch(std::exception &e) {
