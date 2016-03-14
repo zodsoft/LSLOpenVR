@@ -1,5 +1,9 @@
 build/*
 
+#matlab
+*.asv
+*.m~
+
 # Compiled Object files
 *.slo
 *.lo

@@ -61,10 +61,12 @@ std::vector<std::string> device_chans = {
 };
 const int n_pose_axes = 3 * 4;
 std::vector<std::string> pose_chans = {
-	"00", "01", "02", "03",
-	"10", "11", "12", "13",
-	"20", "21", "22", "23"
+	"00", "01", "02", "X",
+	"10", "11", "12", "Y",
+	"20", "21", "22", "Z"
 };
+
+float Fs = 2000.0;
 
 
 int main(int argc, char* argv[]) {
@@ -108,10 +110,10 @@ int main(int argc, char* argv[]) {
 		}
 		std::vector<uint32_t> device_indices = {
 			vr::k_unTrackedDeviceIndex_Hmd,
-			(uint32_t)vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand),
-			(uint32_t)vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand)
+			(uint32_t)vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand),
+			(uint32_t)vrsys->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand)
 		};
-		std::cout << "HMD: " << device_indices[0] << "; RightHand: " << device_indices[1] << "; LeftHand: " << device_indices[2] << std::endl;
+		std::cout << "HMD: " << device_indices[0] << "; LeftHand: " << device_indices[1] << "; RightHand: " << device_indices[2] << std::endl;
 
 		
 		//Make stream infos. First for Button events. Second for poses.
@@ -144,6 +146,8 @@ int main(int argc, char* argv[]) {
         
         // send data forever
 		vr::TrackedDevicePose_t rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
+		double samp_interval = 1.0 / Fs;
+		double starttime = ((double)clock()) / CLOCKS_PER_SEC;
         std::cout << "Now sending data... " << std::endl;
         for(unsigned t=0;;t++) {
 
@@ -205,13 +209,14 @@ int main(int argc, char* argv[]) {
 			}
 
 			// Get the poses
+			while (((double)clock()) / CLOCKS_PER_SEC < starttime + t*samp_interval);
 			float pose_sample[n_devices*n_pose_axes] = {};
 			vrsys->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseSeated, 0.0f, VR_ARRAY_COUNT(vr::k_unMaxTrackedDeviceCount) rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount);
 			for (int device_ix = 0; device_ix < vr::k_unMaxTrackedDeviceCount; device_ix++)
 			{
 				if (rTrackedDevicePose[device_ix].bPoseIsValid && rTrackedDevicePose[device_ix].bDeviceIsConnected)
 				{
-					int pos = std::find(device_indices.begin(), device_indices.end(), device_ix) - device_indices.begin();
+					uint64_t pos = std::find(device_indices.begin(), device_indices.end(), device_ix) - device_indices.begin();
 					if (pos < device_indices.size())
 					{
 						device_id = device_indices[pos];
